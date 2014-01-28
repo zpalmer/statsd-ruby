@@ -1,4 +1,7 @@
+require 'openssl'
+require 'securerandom'
 require 'socket'
+require 'time'
 
 # = Statsd: A Statsd client (https://github.com/etsy/statsd)
 #
@@ -19,6 +22,9 @@ class Statsd
   #characters that will be replaced with _ in stat names
   RESERVED_CHARS_REGEX = /[\:\|\@]/
 
+  # Digest object as a constant
+  SHA256 = OpenSSL::Digest::SHA256.new
+
   class << self
     # Set to any standard logger instance (including stdlib's Logger) to enable
     # stat logging using logger.debug
@@ -27,8 +33,8 @@ class Statsd
 
   # @param [String] host your statsd host
   # @param [Integer] port your statsd port
-  def initialize(host, port=8125)
-    @host, @port = host, port
+  def initialize(host, port=8125, key=nil)
+    @host, @port, @key = host, port, key
   end
 
   # Sends an increment (count = 1) for the given stat to the statsd server.
@@ -103,9 +109,27 @@ class Statsd
 
   def send_to_socket(message)
     self.class.logger.debug {"Statsd: #{message}"} if self.class.logger
-    socket.send(message, 0, @host, @port)
+    if @key.nil?
+      socket.send(message, 0, @host, @port)
+    else
+      socket.send(signed_payload(message), 0, @host, @port)
+    end
   rescue => boom
     self.class.logger.error {"Statsd: #{boom.class} #{boom}"} if self.class.logger
+  end
+
+  def signed_payload(message)
+    payload = timestamp + nonce + message
+    signature = OpenSSL::HMAC.digest(SHA256, @key, payload)
+    signature + payload
+  end
+
+  def timestamp
+    [Time.now.to_i].pack("Q<")
+  end
+
+  def nonce
+    SecureRandom.random_bytes(4)
   end
 
   def socket; @socket ||= UDPSocket.new end
