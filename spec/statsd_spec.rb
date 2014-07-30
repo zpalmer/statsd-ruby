@@ -71,7 +71,11 @@ describe Statsd do
   describe "#time" do
     it "should format the message according to the statsd spec" do
       @statsd.time('foobar') { sleep(0.001); 'test' }
-      @statsd.socket.recv.must_equal ['foobar:1|ms']
+      data = @statsd.socket.recv
+      key, value, unit = data.first.split(/[:|]/)
+      key.must_equal "foobar"
+      value.must_match /^\d\.\d{3}$/
+      unit.must_equal "ms"
     end
 
     it "should return the result of the block" do
@@ -84,7 +88,12 @@ describe Statsd do
 
       it "should format the message according to the statsd spec" do
         result = @statsd.time('foobar', 0.5) { sleep(0.001); 'test' }
-        @statsd.socket.recv.must_equal ['foobar:1|ms|@0.5']
+        data = @statsd.socket.recv
+        key, value, unit, frequency = data.first.split(/[:|]/)
+        key.must_equal "foobar"
+        value.must_match /^\d\.\d{3}$/
+        unit.must_equal "ms"
+        frequency.must_equal "@0.5"
       end
     end
   end
