@@ -35,6 +35,7 @@ class Statsd
   # @param [Integer] port your statsd port
   def initialize(host, port=8125, key=nil)
     @host, @port, @key = host, port, key
+    @ip = Addrinfo.ip(host)
   end
 
   # Sends an increment (count = 1) for the given stat to the statsd server.
@@ -110,9 +111,9 @@ class Statsd
   def send_to_socket(message)
     self.class.logger.debug {"Statsd: #{message}"} if self.class.logger
     if @key.nil?
-      socket.send(message, 0, @host, @port)
+      socket.send(message, 0, @ip, @port)
     else
-      socket.send(signed_payload(message), 0, @host, @port)
+      socket.send(signed_payload(message), 0, @ip, @port)
     end
   rescue => boom
     self.class.logger.error {"Statsd: #{boom.class} #{boom}"} if self.class.logger
