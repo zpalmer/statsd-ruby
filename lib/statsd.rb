@@ -35,7 +35,7 @@ class Statsd
   # @param [Integer] port your statsd port
   def initialize(host, port=8125, key=nil)
     @host, @port, @key = host, port, key
-    @ip = Addrinfo.ip(host)
+    @ip = Addrinfo.ip(host).ip_address
   end
 
   # Sends an increment (count = 1) for the given stat to the statsd server.
