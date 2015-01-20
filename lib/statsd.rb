@@ -48,8 +48,9 @@ class Statsd
     add_host(host, port, key)
   end
 
-  def add_host(host, port, key = nil)
-    @hosts << Host.new(host, port, key)
+  def add_host(host, port = nil, key = nil)
+    host, port = host.split(':') if host.include?(':')
+    @hosts << Host.new(host, port.to_i, key)
   end
 
   # Sends an increment (count = 1) for the given stat to the statsd server.
