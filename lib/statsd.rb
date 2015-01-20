@@ -119,7 +119,7 @@ class Statsd
     sampled(sample_rate) do
       prefix = "#{@namespace}." unless @namespace.nil?
       stat = stat.to_s.gsub('::', '.').gsub(RESERVED_CHARS_REGEX, '_')
-      msg = "#{prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}")
+      msg = "#{prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
       send_to_socket(select_host(stat), msg)
     end
   end
