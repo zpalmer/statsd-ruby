@@ -109,6 +109,12 @@ class Statsd
     result
   end
 
+  # Sends a histogram measurement for the given stat to the statsd server. The
+  # sample_rate determines what percentage of the time this report is sent. The
+  # statsd server then uses the sample_rate to correctly track the average
+  # for the stat.
+  def histogram(stat, value, sample_rate=1); send stat, value, 'h', sample_rate end
+
   private
 
   def sampled(sample_rate)
