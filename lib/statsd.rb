@@ -1,5 +1,3 @@
-require 'openssl'
-require 'securerandom'
 require 'socket'
 require 'time'
 require 'zlib'
@@ -31,9 +29,6 @@ class Statsd
 
   #characters that will be replaced with _ in stat names
   RESERVED_CHARS_REGEX = /[\:\|\@]/
-
-  # Digest object as a constant
-  SHA256 = OpenSSL::Digest::SHA256.new
 
   class << self
     # Set to any standard logger instance (including stdlib's Logger) to enable
@@ -150,9 +145,20 @@ class Statsd
   end
 
   def signed_payload(key, message)
+    sha256 = Statsd.setup_openssl
     payload = timestamp + nonce + message
-    signature = OpenSSL::HMAC.digest(SHA256, key, payload)
+    signature = OpenSSL::HMAC.digest(sha256, key, payload)
     signature + payload
+  end
+
+  # defer loading openssl and securerandom unless needed. this shaves ~10ms off
+  # of baseline require load time for environments that don't require message signing.
+  def self.setup_openssl
+    @sha256 ||= begin
+      require 'securerandom'
+      require 'openssl'
+      OpenSSL::Digest::SHA256.new
+    end
   end
 
   def timestamp
