@@ -1,5 +1,4 @@
 require 'socket'
-require 'time'
 require 'zlib'
 
 # = Statsd: A Statsd client (https://github.com/etsy/statsd)
