@@ -14,12 +14,19 @@ require 'zlib'
 #   statsd = Statsd.new('localhost').tap{|sd| sd.namespace = 'account'}
 #   statsd.increment 'activate'
 class Statsd
-  class Host
-    attr_reader :ip, :port, :key
-    def initialize(host, port, key = nil)
-      @ip = Addrinfo.ip(host).ip_address
-      @port = port
+  class RubyUdpClient
+    attr_reader :key, :sock
+
+    def initialize(address, port, key = nil)
+      @sock = UDPSocket.new
+      @sock.connect(address, port)
       @key = key
+    end
+
+    def send(msg)
+      sock.write(msg)
+    rescue => boom
+      nil
     end
   end
 
@@ -29,22 +36,19 @@ class Statsd
   #characters that will be replaced with _ in stat names
   RESERVED_CHARS_REGEX = /[\:\|\@]/
 
-  class << self
-    # Set to any standard logger instance (including stdlib's Logger) to enable
-    # stat logging using logger.debug
-    attr_accessor :logger
+  def initialize(client_class = nil)
+    @shards = []
+    @client_class = client_class || RubyUdpClient
   end
 
-  # @param [String] host your statsd host
-  # @param [Integer] port your statsd port
-  def initialize(host, port=8125, key=nil)
-    @hosts = []
-    add_host(host, port, key)
+  def self.simple(addr, port = nil)
+    self.new.add_shard(addr, port)
   end
 
-  def add_host(host, port = nil, key = nil)
-    host, port = host.split(':') if host.include?(':')
-    @hosts << Host.new(host, port.to_i, key)
+  def add_shard(addr, port = nil, key = nil)
+    addr, port = addr.split(':') if addr.include?(':')
+    @shards << @client_class.new(addr, port.to_i, key)
+    self
   end
 
   # Sends an increment (count = 1) for the given stat to the statsd server.
@@ -120,26 +124,16 @@ class Statsd
       prefix = "#{@namespace}." unless @namespace.nil?
       stat = stat.to_s.gsub('::', '.').gsub(RESERVED_CHARS_REGEX, '_')
       msg = "#{prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
-      send_to_socket(select_host(stat), msg)
+      shard = select_shard(stat)
+      shard.send(shard.key ? signed_payload(shard.key, msg) : msg)
     end
   end
 
-  def send_to_socket(host, message)
-    self.class.logger.debug {"Statsd: #{message}"} if self.class.logger
-    if host.key.nil?
-      socket.send(message, 0, host.ip, host.port)
+  def select_shard(stat)
+    if @shards.size == 1
+      @shards.first
     else
-      socket.send(signed_payload(host.key, message), 0, host.ip, host.port)
-    end
-  rescue => boom
-    self.class.logger.error {"Statsd: #{boom.class} #{boom}"} if self.class.logger
-  end
-
-  def select_host(stat)
-    if @hosts.size == 1
-      @hosts.first
-    else
-      @hosts[Zlib.crc32(stat) % @hosts.size]
+      @shards[Zlib.crc32(stat) % @shards.size]
     end
   end
 
@@ -167,6 +161,4 @@ class Statsd
   def nonce
     SecureRandom.random_bytes(4)
   end
-
-  def socket; @socket ||= UDPSocket.new end
 end
