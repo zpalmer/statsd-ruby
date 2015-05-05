@@ -33,6 +33,9 @@ class Statsd
   # A namespace to prepend to all statsd calls.
   attr_accessor :namespace
 
+  # All the endpoints where StatsD will report metrics
+  attr_reader :shards
+
   #characters that will be replaced with _ in stat names
   RESERVED_CHARS_REGEX = /[\:\|\@]/
 
