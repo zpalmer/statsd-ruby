@@ -18,8 +18,9 @@ class Statsd
     attr_reader :key, :sock
 
     def initialize(address, port, key = nil)
-      @sock = UDPSocket.new
-      @sock.connect(address, port)
+      addrinfo = Addrinfo.ip(address)
+      @sock = UDPSocket.new(addrinfo.pfamily)
+      @sock.connect(addrinfo.ip_address, port)
       @key = key
     end
 
