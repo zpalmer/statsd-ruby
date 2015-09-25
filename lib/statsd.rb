@@ -141,7 +141,19 @@ class Statsd
       stat = stat.to_s.dup
       stat.gsub!(COLON_COLON_REGEX, ".".freeze)
       stat.gsub!(RESERVED_CHARS_REGEX, "_".freeze)
-      msg = "#{@prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
+
+      msg = ""
+      msg << @prefix
+      msg << stat
+      msg << ":".freeze
+      msg << delta.to_s
+      msg << "|".freeze
+      msg << type
+      if sample_rate < 1
+        msg << "|@".freeze
+        msg << sample_rate.to_s
+      end
+
       shard = select_shard(stat)
       shard.send(shard.key ? signed_payload(shard.key, msg) : msg)
     end
