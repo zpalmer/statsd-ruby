@@ -139,8 +139,8 @@ class Statsd
   def send(stat, delta, type, sample_rate=1)
     sampled(sample_rate) do
       stat = stat.to_s.dup
-      stat.gsub!(COLON_COLON_REGEX, '.')
-      stat.gsub!(RESERVED_CHARS_REGEX, '_')
+      stat.gsub!(COLON_COLON_REGEX, ".".freeze)
+      stat.gsub!(RESERVED_CHARS_REGEX, "_".freeze)
       msg = "#{@prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
       shard = select_shard(stat)
       shard.send(shard.key ? signed_payload(shard.key, msg) : msg)
