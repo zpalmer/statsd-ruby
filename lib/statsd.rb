@@ -32,7 +32,12 @@ class Statsd
   end
 
   # A namespace to prepend to all statsd calls.
-  attr_accessor :namespace
+  attr_reader :namespace
+
+  def namespace=(namespace)
+    @namespace = namespace
+    @prefix = namespace ? "#{@namespace}." : "".freeze
+  end
 
   # All the endpoints where StatsD will report metrics
   attr_reader :shards
@@ -48,6 +53,7 @@ class Statsd
   def initialize(client_class = nil)
     @shards = []
     @client_class = client_class || RubyUdpClient
+    self.namespace = nil
   end
 
   def self.simple(addr, port = nil)
@@ -130,9 +136,8 @@ class Statsd
 
   def send(stat, delta, type, sample_rate=1)
     sampled(sample_rate) do
-      prefix = "#{@namespace}." unless @namespace.nil?
       stat = stat.to_s.gsub('::', '.').gsub(RESERVED_CHARS_REGEX, '_')
-      msg = "#{prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
+      msg = "#{@prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
       shard = select_shard(stat)
       shard.send(shard.key ? signed_payload(shard.key, msg) : msg)
     end
