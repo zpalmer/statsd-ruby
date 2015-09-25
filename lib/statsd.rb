@@ -45,6 +45,8 @@ class Statsd
   #characters that will be replaced with _ in stat names
   RESERVED_CHARS_REGEX = /[\:\|\@]/
 
+  COLON_COLON_REGEX = /::/
+
   COUNTER_TYPE = "c".freeze
   TIMING_TYPE = "ms".freeze
   GAUGE_TYPE = "g".freeze
@@ -137,7 +139,7 @@ class Statsd
   def send(stat, delta, type, sample_rate=1)
     sampled(sample_rate) do
       stat = stat.to_s.dup
-      stat.gsub!('::', '.')
+      stat.gsub!(COLON_COLON_REGEX, '.')
       stat.gsub!(RESERVED_CHARS_REGEX, '_')
       msg = "#{@prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
       shard = select_shard(stat)
