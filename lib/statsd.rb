@@ -32,7 +32,12 @@ class Statsd
   end
 
   # A namespace to prepend to all statsd calls.
-  attr_accessor :namespace
+  attr_reader :namespace
+
+  def namespace=(namespace)
+    @namespace = namespace
+    @prefix = namespace ? "#{@namespace}." : "".freeze
+  end
 
   # All the endpoints where StatsD will report metrics
   attr_reader :shards
@@ -40,9 +45,15 @@ class Statsd
   #characters that will be replaced with _ in stat names
   RESERVED_CHARS_REGEX = /[\:\|\@]/
 
+  COUNTER_TYPE = "c".freeze
+  TIMING_TYPE = "ms".freeze
+  GAUGE_TYPE = "g".freeze
+  HISTOGRAM_TYPE = "h".freeze
+
   def initialize(client_class = nil)
     @shards = []
     @client_class = client_class || RubyUdpClient
+    self.namespace = nil
   end
 
   def self.simple(addr, port = nil)
@@ -74,7 +85,7 @@ class Statsd
   # @param [String] stat stat name
   # @param [Integer] count count
   # @param [Integer] sample_rate sample rate, 1 for always
-  def count(stat, count, sample_rate=1); send stat, count, 'c', sample_rate end
+  def count(stat, count, sample_rate=1); send stat, count, COUNTER_TYPE, sample_rate end
 
   # Sends an arbitary gauge value for the given stat to the statsd server.
   #
@@ -83,7 +94,7 @@ class Statsd
   # @example Report the current user count:
   #   $statsd.gauge('user.count', User.count)
   def gauge(stat, value)
-    send stat, value, 'g'
+    send stat, value, GAUGE_TYPE
   end
 
   # Sends a timing (in ms) for the given stat to the statsd server. The
@@ -94,7 +105,7 @@ class Statsd
   # @param stat stat name
   # @param [Integer] ms timing in milliseconds
   # @param [Integer] sample_rate sample rate, 1 for always
-  def timing(stat, ms, sample_rate=1); send stat, ms, 'ms', sample_rate end
+  def timing(stat, ms, sample_rate=1); send stat, ms, TIMING_TYPE, sample_rate end
 
   # Reports execution time of the provided block using {#timing}.
   #
@@ -115,7 +126,7 @@ class Statsd
   # sample_rate determines what percentage of the time this report is sent. The
   # statsd server then uses the sample_rate to correctly track the average
   # for the stat.
-  def histogram(stat, value, sample_rate=1); send stat, value, 'h', sample_rate end
+  def histogram(stat, value, sample_rate=1); send stat, value, HISTOGRAM_TYPE, sample_rate end
 
   private
 
@@ -125,9 +136,22 @@ class Statsd
 
   def send(stat, delta, type, sample_rate=1)
     sampled(sample_rate) do
-      prefix = "#{@namespace}." unless @namespace.nil?
-      stat = stat.to_s.gsub('::', '.').gsub(RESERVED_CHARS_REGEX, '_')
-      msg = "#{prefix}#{stat}:#{delta}|#{type}#{'|@' << sample_rate.to_s if sample_rate < 1}"
+      stat = stat.to_s.dup
+      stat.gsub!(/::/, ".".freeze)
+      stat.gsub!(RESERVED_CHARS_REGEX, "_".freeze)
+
+      msg = ""
+      msg << @prefix
+      msg << stat
+      msg << ":".freeze
+      msg << delta.to_s
+      msg << "|".freeze
+      msg << type
+      if sample_rate < 1
+        msg << "|@".freeze
+        msg << sample_rate.to_s
+      end
+
       shard = select_shard(stat)
       shard.send(shard.key ? signed_payload(shard.key, msg) : msg)
     end
