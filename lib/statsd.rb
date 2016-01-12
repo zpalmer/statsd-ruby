@@ -14,14 +14,52 @@ require 'zlib'
 #   statsd = Statsd.new('localhost').tap{|sd| sd.namespace = 'account'}
 #   statsd.increment 'activate'
 class Statsd
-  class RubyUdpClient
-    attr_reader :key, :sock
+  class SecureUDPClient < UDPClient
+    def initialize(address, port, key)
+      super(address, port)
+      @key = key
+    end
 
-    def initialize(address, port, key = nil)
+    def send(msg)
+      super(signed_payload(msg))
+    end
+
+    private
+    # defer loading openssl and securerandom unless needed. this shaves ~10ms off
+    # of baseline require load time for environments that don't require message signing.
+    def self.setup_openssl
+      @sha256 ||= begin
+        require 'securerandom'
+        require 'openssl'
+        OpenSSL::Digest::SHA256.new
+      end
+    end
+
+    def signed_payload(message)
+      sha256 = SecureUDPClient.setup_openssl
+      payload = timestamp + nonce + message
+      signature = OpenSSL::HMAC.digest(sha256, @key, payload)
+      signature + payload
+    end
+
+    def timestamp
+      [Time.now.to_i].pack("Q<")
+    end
+
+    def nonce
+      SecureRandom.random_bytes(4)
+    end
+  end
+
+  class UDPClient
+    attr_reader :sock
+
+    def initialize(address, port = nil)
+      address, port = address.split(':') if address.include?(':')
       addrinfo = Addrinfo.ip(address)
+
       @sock = UDPSocket.new(addrinfo.pfamily)
       @sock.connect(addrinfo.ip_address, port)
-      @key = key
     end
 
     def send(msg)
@@ -52,7 +90,7 @@ class Statsd
 
   def initialize(client_class = nil)
     @shards = []
-    @client_class = client_class || RubyUdpClient
+    @client_class = client_class || UDPClient
     self.namespace = nil
   end
 
@@ -60,9 +98,8 @@ class Statsd
     self.new.add_shard(addr, port)
   end
 
-  def add_shard(addr, port = nil, key = nil)
-    addr, port = addr.split(':') if addr.include?(':')
-    @shards << @client_class.new(addr, port.to_i, key)
+  def add_shard(*args)
+    @shards << @client_class.new(*args)
     self
   end
 
@@ -129,7 +166,6 @@ class Statsd
   def histogram(stat, value, sample_rate=1); send stat, value, HISTOGRAM_TYPE, sample_rate end
 
   private
-
   def sampled(sample_rate)
     yield unless sample_rate < 1 and rand > sample_rate
   end
@@ -140,7 +176,7 @@ class Statsd
       stat.gsub!(/::/, ".".freeze)
       stat.gsub!(RESERVED_CHARS_REGEX, "_".freeze)
 
-      msg = ""
+      msg = String.new
       msg << @prefix
       msg << stat
       msg << ":".freeze
@@ -153,7 +189,7 @@ class Statsd
       end
 
       shard = select_shard(stat)
-      shard.send(shard.key ? signed_payload(shard.key, msg) : msg)
+      shard.send(msg)
     end
   end
 
@@ -163,30 +199,5 @@ class Statsd
     else
       @shards[Zlib.crc32(stat) % @shards.size]
     end
-  end
-
-  def signed_payload(key, message)
-    sha256 = Statsd.setup_openssl
-    payload = timestamp + nonce + message
-    signature = OpenSSL::HMAC.digest(sha256, key, payload)
-    signature + payload
-  end
-
-  # defer loading openssl and securerandom unless needed. this shaves ~10ms off
-  # of baseline require load time for environments that don't require message signing.
-  def self.setup_openssl
-    @sha256 ||= begin
-      require 'securerandom'
-      require 'openssl'
-      OpenSSL::Digest::SHA256.new
-    end
-  end
-
-  def timestamp
-    [Time.now.to_i].pack("Q<")
-  end
-
-  def nonce
-    SecureRandom.random_bytes(4)
   end
 end
