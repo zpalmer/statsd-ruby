@@ -14,6 +14,24 @@ require 'zlib'
 #   statsd = Statsd.new('localhost').tap{|sd| sd.namespace = 'account'}
 #   statsd.increment 'activate'
 class Statsd
+  class UDPClient
+    attr_reader :sock
+
+    def initialize(address, port = nil)
+      address, port = address.split(':') if address.include?(':')
+      addrinfo = Addrinfo.ip(address)
+
+      @sock = UDPSocket.new(addrinfo.pfamily)
+      @sock.connect(addrinfo.ip_address, port)
+    end
+
+    def send(msg)
+      sock.write(msg)
+    rescue SystemCallError
+      nil
+    end
+  end
+
   class SecureUDPClient < UDPClient
     def initialize(address, port, key)
       super(address, port)
@@ -51,24 +69,6 @@ class Statsd
     end
   end
 
-  class UDPClient
-    attr_reader :sock
-
-    def initialize(address, port = nil)
-      address, port = address.split(':') if address.include?(':')
-      addrinfo = Addrinfo.ip(address)
-
-      @sock = UDPSocket.new(addrinfo.pfamily)
-      @sock.connect(addrinfo.ip_address, port)
-    end
-
-    def send(msg)
-      sock.write(msg)
-    rescue => boom
-      nil
-    end
-  end
-
   # A namespace to prepend to all statsd calls.
   attr_reader :namespace
 
@@ -102,6 +102,25 @@ class Statsd
     @shards << @client_class.new(*args)
     self
   end
+
+  def enable_buffering(buffer_size = nil)
+    return if @buffering
+    @shards.map! { |client| Buffer.new(client, buffer_size) }
+    @buffering = true
+  end
+
+  def disable_buffering
+    return unless @buffering
+    flush_all
+    @shards.map! { |client| client.base_client }
+    @buffering = false
+  end
+
+  def flush_all
+    return unless @buffering
+    @shards.each { |client| client.flush }
+  end
+
 
   # Sends an increment (count = 1) for the given stat to the statsd server.
   #
@@ -198,6 +217,31 @@ class Statsd
       @shards.first
     else
       @shards[Zlib.crc32(stat) % @shards.size]
+    end
+  end
+
+  class Buffer
+    DEFAULT_BUFFER_CAP = 512
+
+    attr_reader :base_client
+
+    def initialize(client, buffer_cap = nil)
+      @base_client = client
+      @buffer = String.new
+      @buffer_cap = buffer_cap || DEFAULT_BUFFER_CAP
+    end
+
+    def flush
+      return unless @buffer.bytesize > 0
+      @base_client.send(@buffer)
+      @buffer.clear
+    end
+
+    def send(msg)
+      flush if @buffer.bytesize + msg.bytesize >= @buffer_cap
+      @buffer << msg
+      @buffer << "\n".freeze
+      nil
     end
   end
 end
