@@ -224,17 +224,20 @@ class Statsd
     DEFAULT_BUFFER_CAP = 512
 
     attr_reader :base_client
+    attr_accessor :flush_count
 
     def initialize(client, buffer_cap = nil)
       @base_client = client
       @buffer = String.new
       @buffer_cap = buffer_cap || DEFAULT_BUFFER_CAP
+      @flush_count = 0
     end
 
     def flush
       return unless @buffer.bytesize > 0
       @base_client.send(@buffer)
       @buffer.clear
+      @flush_count += 1
     end
 
     def send(msg)
