@@ -14,20 +14,58 @@ require 'zlib'
 #   statsd = Statsd.new('localhost').tap{|sd| sd.namespace = 'account'}
 #   statsd.increment 'activate'
 class Statsd
-  class RubyUdpClient
-    attr_reader :key, :sock
+  class UDPClient
+    attr_reader :sock
 
-    def initialize(address, port, key = nil)
+    def initialize(address, port = nil)
+      address, port = address.split(':') if address.include?(':')
       addrinfo = Addrinfo.ip(address)
+
       @sock = UDPSocket.new(addrinfo.pfamily)
       @sock.connect(addrinfo.ip_address, port)
-      @key = key
     end
 
     def send(msg)
       sock.write(msg)
-    rescue => boom
+    rescue SystemCallError
       nil
+    end
+  end
+
+  class SecureUDPClient < UDPClient
+    def initialize(address, port, key)
+      super(address, port)
+      @key = key
+    end
+
+    def send(msg)
+      super(signed_payload(msg))
+    end
+
+    private
+    # defer loading openssl and securerandom unless needed. this shaves ~10ms off
+    # of baseline require load time for environments that don't require message signing.
+    def self.setup_openssl
+      @sha256 ||= begin
+        require 'securerandom'
+        require 'openssl'
+        OpenSSL::Digest::SHA256.new
+      end
+    end
+
+    def signed_payload(message)
+      sha256 = SecureUDPClient.setup_openssl
+      payload = timestamp + nonce + message
+      signature = OpenSSL::HMAC.digest(sha256, @key, payload)
+      signature + payload
+    end
+
+    def timestamp
+      [Time.now.to_i].pack("Q<")
+    end
+
+    def nonce
+      SecureRandom.random_bytes(4)
     end
   end
 
@@ -52,7 +90,7 @@ class Statsd
 
   def initialize(client_class = nil)
     @shards = []
-    @client_class = client_class || RubyUdpClient
+    @client_class = client_class || UDPClient
     self.namespace = nil
   end
 
@@ -60,11 +98,29 @@ class Statsd
     self.new.add_shard(addr, port)
   end
 
-  def add_shard(addr, port = nil, key = nil)
-    addr, port = addr.split(':') if addr.include?(':')
-    @shards << @client_class.new(addr, port.to_i, key)
+  def add_shard(*args)
+    @shards << @client_class.new(*args)
     self
   end
+
+  def enable_buffering(buffer_size = nil)
+    return if @buffering
+    @shards.map! { |client| Buffer.new(client, buffer_size) }
+    @buffering = true
+  end
+
+  def disable_buffering
+    return unless @buffering
+    flush_all
+    @shards.map! { |client| client.base_client }
+    @buffering = false
+  end
+
+  def flush_all
+    return unless @buffering
+    @shards.each { |client| client.flush }
+  end
+
 
   # Sends an increment (count = 1) for the given stat to the statsd server.
   #
@@ -129,7 +185,6 @@ class Statsd
   def histogram(stat, value, sample_rate=1); send stat, value, HISTOGRAM_TYPE, sample_rate end
 
   private
-
   def sampled(sample_rate)
     yield unless sample_rate < 1 and rand > sample_rate
   end
@@ -140,7 +195,7 @@ class Statsd
       stat.gsub!(/::/, ".".freeze)
       stat.gsub!(RESERVED_CHARS_REGEX, "_".freeze)
 
-      msg = ""
+      msg = String.new
       msg << @prefix
       msg << stat
       msg << ":".freeze
@@ -153,7 +208,7 @@ class Statsd
       end
 
       shard = select_shard(stat)
-      shard.send(shard.key ? signed_payload(shard.key, msg) : msg)
+      shard.send(msg)
     end
   end
 
@@ -165,28 +220,31 @@ class Statsd
     end
   end
 
-  def signed_payload(key, message)
-    sha256 = Statsd.setup_openssl
-    payload = timestamp + nonce + message
-    signature = OpenSSL::HMAC.digest(sha256, key, payload)
-    signature + payload
-  end
+  class Buffer
+    DEFAULT_BUFFER_CAP = 512
 
-  # defer loading openssl and securerandom unless needed. this shaves ~10ms off
-  # of baseline require load time for environments that don't require message signing.
-  def self.setup_openssl
-    @sha256 ||= begin
-      require 'securerandom'
-      require 'openssl'
-      OpenSSL::Digest::SHA256.new
+    attr_reader :base_client
+    attr_accessor :flush_count
+
+    def initialize(client, buffer_cap = nil)
+      @base_client = client
+      @buffer = String.new
+      @buffer_cap = buffer_cap || DEFAULT_BUFFER_CAP
+      @flush_count = 0
     end
-  end
 
-  def timestamp
-    [Time.now.to_i].pack("Q<")
-  end
+    def flush
+      return unless @buffer.bytesize > 0
+      @base_client.send(@buffer)
+      @buffer.clear
+      @flush_count += 1
+    end
 
-  def nonce
-    SecureRandom.random_bytes(4)
+    def send(msg)
+      flush if @buffer.bytesize + msg.bytesize >= @buffer_cap
+      @buffer << msg
+      @buffer << "\n".freeze
+      nil
+    end
   end
 end
