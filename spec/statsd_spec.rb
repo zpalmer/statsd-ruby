@@ -74,7 +74,7 @@ describe GitHub::Statsd do
       data = @statsd.shards.first.recv
       key, value, unit = data.first.split(/[:|]/)
       key.must_equal "foobar"
-      value.must_match /^\d\.\d{3}$/
+      value.must_match /^\d\.\d+$/
       unit.must_equal "ms"
     end
 
@@ -91,7 +91,7 @@ describe GitHub::Statsd do
         data = @statsd.shards.first.recv
         key, value, unit, frequency = data.first.split(/[:|]/)
         key.must_equal "foobar"
-        value.must_match /^\d\.\d{3}$/
+        value.must_match /^\d\.\d+$/
         unit.must_equal "ms"
         frequency.must_equal "@0.5"
       end
