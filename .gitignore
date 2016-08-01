@@ -40,3 +40,6 @@ pkg
 #
 # For vim:
 #*.swp
+
+# deps should be good enough in Gemfile and gemspec that this isn't needed
+Gemfile.lock

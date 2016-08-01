@@ -5,7 +5,7 @@ A Ruby statsd client (https://github.com/etsy/statsd)
 = Installing
 
 Bundler:
-  gem "statsd-ruby", :require => "statsd"
+  gem "statsd-ruby", :require => "github/statsd"
 
 = Testing
 
@@ -14,7 +14,7 @@ Run the specs with <tt>rake spec</tt>
 Run the specs and include live integration specs with <tt>LIVE=true rake spec</tt>. Note: This will test over a real UDP socket.
 
 == Contributing to statsd
- 
+
 * Check out the latest master to make sure the feature hasn't been implemented or the bug hasn't been fixed yet
 * Check out the issue tracker to make sure someone already hasn't requested it and/or contributed it
 * Fork the project
