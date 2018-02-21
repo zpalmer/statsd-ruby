@@ -166,6 +166,34 @@ describe GitHub::Statsd do
 
   end
 
+  describe "mirroring" do
+    it "should send to only one shard by default" do
+      @statsd.add_shard
+      @statsd.increment('dog')
+
+      shards_messaged = 0
+      @statsd.shards.each do |shard|
+        shards_messaged += 1 if shard.recv == ['dog:1|c']
+      end
+
+      shards_messaged.must_equal 1
+    end
+
+    it "should send every message to all shards when the mirroring option is on" do
+      @statsd = GitHub::Statsd.new(FakeUDPSocket, {:use_shards_as_mirrors => true})
+      @statsd.add_shard
+      class << @statsd
+        public :sampled
+      end
+
+      @statsd.add_shard
+      @statsd.increment('dog')
+      @statsd.shards.each do |shard|
+        shard.recv.must_equal ['dog:1|c']
+      end
+    end
+  end
+
 end
 
 describe GitHub::Statsd do

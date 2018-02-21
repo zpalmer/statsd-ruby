@@ -92,10 +92,11 @@ module GitHub
     GAUGE_TYPE = "g".freeze
     HISTOGRAM_TYPE = "h".freeze
 
-    def initialize(client_class = nil)
+    def initialize(client_class = nil, options = {:use_shards_as_mirrors => false})
       @shards = []
       @client_class = client_class || UDPClient
       self.namespace = nil
+      @use_shards_as_mirrors = options[:use_shards_as_mirrors]
     end
 
     def self.simple(addr, port = nil)
@@ -211,6 +212,16 @@ module GitHub
           msg << sample_rate.to_s
         end
 
+        send_message_to_shard(stat, msg)
+      end
+    end
+
+    def send_message_to_shard(stat, msg)
+      if @use_shards_as_mirrors
+        @shards.each do |shard|
+          shard.send(msg)
+        end
+      else
         shard = select_shard(stat)
         shard.send(msg)
       end
